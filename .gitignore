@@ -1,0 +1,43 @@
+# ---- Challenge data (NEVER commit — confidential, per challenge terms) ----
+data/vad_data/
+data/vad_data_tar.gz
+*.wav
+*.flac
+
+# ---- External public datasets (downloaded locally, not versioned) ----
+data/musan/
+data/rirs/
+data/librispeech/
+data/external/
+
+# ---- Model checkpoints / large artifacts ----
+checkpoints/
+*.pt
+*.ckpt
+*.onnx
+
+# ---- Logs / runs ----
+wandb/
+runs/
+lightning_logs/
+*.log
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+
+# ---- OS / editor ----
+.DS_Store
+.vscode/
+.idea/
+
+# ---- LaTeX build ----
+report/*.aux
+report/*.out
+report/*.toc
+report/*.log
+report/*.synctex.gz
