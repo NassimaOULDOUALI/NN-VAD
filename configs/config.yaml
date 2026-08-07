@@ -67,3 +67,10 @@ eval:
   collar_ms: 100
   snr_sweep_db: [-5, 0, 5, 10, 15, 20]
   baselines: [energy, silero]
+
+wandb:
+  enabled: true
+  project: NN-VAD
+  entity: null
+  name: crnn-logmel-seed42
+  mode: online

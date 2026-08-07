@@ -6,8 +6,9 @@ The frame mask is derived from the CLEAN signal's segments, so it stays exact:
 we only degrade the audio. `add_reverb` peak-aligns the RIR so onsets do not
 shift (which would otherwise invalidate the mask).
 
-SpecAugment operates in the FEATURE domain (not wav), so it is provided here but
-applied after feature extraction (in the training step), not in augment_fn.
+Efficiency: noise clips are read by SEGMENT (soundfile header + windowed read)
+instead of loading whole multi-minute MUSAN files; RIRs are small and LRU-cached.
+This keeps disk I/O per sample tiny, which is the CPU-training bottleneck.
 
 External sources (public only):
   - NoiseBank: MUSAN music/ and noise/  (NEVER speech/, which is speech).
@@ -16,8 +17,10 @@ Both reserve a disjoint pool for test (held-out files) to avoid noise leakage.
 """
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Optional
+from functools import lru_cache
+from typing import List, Optional, Dict
 import random
+import numpy as np
 import torch
 import torch.nn.functional as F
 import soundfile as sf
@@ -26,15 +29,6 @@ import soundfile as sf
 # ----------------------------------------------------------------- core ops
 def _rms(x: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return torch.sqrt(torch.mean(x ** 2) + eps)
-
-
-def _fit_length(noise: torch.Tensor, n: int, rng: random.Random) -> torch.Tensor:
-    """Tile/crop a noise clip to exactly n samples (random offset)."""
-    if noise.numel() < n:
-        reps = n // noise.numel() + 1
-        noise = noise.repeat(reps)
-    start = rng.randint(0, noise.numel() - n)
-    return noise[start:start + n]
 
 
 def add_noise(speech: torch.Tensor, noise: torch.Tensor,
@@ -55,14 +49,13 @@ def add_reverb(speech: torch.Tensor, rir: torch.Tensor,
     """
     speech = speech.float()
     rir = rir.float()
-    rir = rir / (rir.abs().max() + 1e-8)          # normalise
-    peak = int(torch.argmax(rir.abs()))           # direct-path index
+    rir = rir / (rir.abs().max() + 1e-8)
+    peak = int(torch.argmax(rir.abs()))
     L, K = speech.numel(), rir.numel()
-    # full convolution via conv1d (flip kernel -> true convolution)
     full = F.conv1d(speech.view(1, 1, -1),
                     rir.flip(0).view(1, 1, -1),
-                    padding=K - 1).view(-1)        # length L + K - 1
-    out = full[peak:peak + L]                      # align on direct path
+                    padding=K - 1).view(-1)          # length L + K - 1
+    out = full[peak:peak + L]                        # align on direct path
     if preserve_energy:
         out = out * (_rms(speech) / _rms(out))
     return out
@@ -77,9 +70,7 @@ def spec_augment(feats: torch.Tensor, n_time: int = 2, n_freq: int = 2,
     fill = feats.mean()
 
     def _randint(hi):
-        if hi <= 0:
-            return 0
-        return int(torch.randint(0, hi, (1,), generator=generator))
+        return 0 if hi <= 0 else int(torch.randint(0, hi, (1,), generator=generator))
 
     for _ in range(n_time):
         w = _randint(int(T * max_time_frac))
@@ -92,16 +83,45 @@ def spec_augment(feats: torch.Tensor, n_time: int = 2, n_freq: int = 2,
     return out
 
 
+# ------------------------------------------------------- efficient IO helpers
+def _downmix(x: np.ndarray) -> np.ndarray:
+    return x.mean(axis=1) if x.ndim > 1 else x
+
+
+def _read_noise_segment(path: str, n: int, n_frames_total: int,
+                        rng: random.Random) -> torch.Tensor:
+    """Read exactly `n` samples from a noise file WITHOUT loading it whole.
+
+    Long file -> read a random window [start, start+n]. Short file -> read all
+    and tile. Only a small windowed decode happens per sample.
+    """
+    if n_frames_total <= n:
+        x = _downmix(sf.read(path, dtype="float32", always_2d=False)[0])
+        reps = n // max(len(x), 1) + 1
+        x = np.tile(x, reps)[:n]
+    else:
+        start = rng.randint(0, n_frames_total - n)
+        x = _downmix(sf.read(path, start=start, frames=n,
+                             dtype="float32", always_2d=False)[0])
+        if len(x) < n:                                # guard rounding
+            x = np.pad(x, (0, n - len(x)))
+    return torch.from_numpy(np.ascontiguousarray(x))
+
+
+@lru_cache(maxsize=1024)
+def _load_rir_cached(path: str) -> torch.Tensor:
+    """Load a (small) RIR once; cached across calls."""
+    x, _ = sf.read(path, dtype="float32", always_2d=False)
+    return torch.from_numpy(np.ascontiguousarray(_downmix(x)))
+
+
 # ------------------------------------------------------------ external banks
-def _load_mono(path: str) -> torch.Tensor:
-    wav, _ = sf.read(str(path), dtype="float32", always_2d=False)
-    if wav.ndim > 1:
-        wav = wav.mean(axis=1)
-    return torch.from_numpy(wav)
-
-
 class NoiseBank:
-    """Indexes MUSAN music/ and noise/ (NEVER speech/); reserves a test pool."""
+    """Indexes MUSAN music/ and noise/ (NEVER speech/); reserves a test pool.
+
+    Caches per-file frame counts (header-only, cheap) so sampling reads only the
+    needed window.
+    """
     def __init__(self, musan_root: str, split: str = "train",
                  test_frac: float = 0.15, seed: int = 42):
         root = Path(musan_root)
@@ -110,21 +130,30 @@ class NoiseBank:
             files += sorted((root / cat).rglob("*.wav"))
         rng = random.Random(seed); rng.shuffle(files)
         cut = int(len(files) * (1 - test_frac))
-        self.files = files[:cut] if split == "train" else files[cut:]
+        self.files = [str(p) for p in (files[:cut] if split == "train"
+                                       else files[cut:])]
         if not self.files:
             raise RuntimeError(f"no MUSAN wavs under {musan_root} "
                                f"(expected music/ and noise/)")
+        self._nframes: Dict[str, int] = {}
+
+    def _frames(self, path: str) -> int:
+        n = self._nframes.get(path)
+        if n is None:
+            n = sf.info(path).frames                 # header only, no decode
+            self._nframes[path] = n
+        return n
 
     def sample(self, n: int, rng: random.Random) -> torch.Tensor:
-        f = self.files[rng.randrange(len(self.files))]
-        return _fit_length(_load_mono(f), n, rng)
+        path = self.files[rng.randrange(len(self.files))]
+        return _read_noise_segment(path, n, self._frames(path), rng)
 
 
 class RIRBank:
-    """Indexes RIR wavs; reserves a test pool (held-out rooms)."""
+    """Indexes RIR wavs; reserves a test pool (held-out rooms). LRU-cached."""
     def __init__(self, rirs_root: str, split: str = "train",
                  test_frac: float = 0.15, seed: int = 43):
-        files = sorted(Path(rirs_root).rglob("*.wav"))
+        files = sorted(str(p) for p in Path(rirs_root).rglob("*.wav"))
         rng = random.Random(seed); rng.shuffle(files)
         cut = int(len(files) * (1 - test_frac))
         self.files = files[:cut] if split == "train" else files[cut:]
@@ -132,7 +161,7 @@ class RIRBank:
             raise RuntimeError(f"no RIR wavs under {rirs_root}")
 
     def sample(self, rng: random.Random) -> torch.Tensor:
-        return _load_mono(self.files[rng.randrange(len(self.files))])
+        return _load_rir_cached(self.files[rng.randrange(len(self.files))])
 
 
 # -------------------------------------------------------------- augment hook
@@ -141,7 +170,7 @@ def make_augment_fn(cfg_aug: dict, noise_bank: Optional[NoiseBank],
     """Build augment_fn(wav, sr) -> degraded wav (reverb then noise)."""
     snr_lo, snr_hi = cfg_aug.get("snr_db_range", [-5, 20])
     p_noise = cfg_aug.get("p_noise", 0.8)
-    p_reverb = cfg_aug.get("p_reverb", 0.5)       # set 1.0 for reverb-on-all
+    p_reverb = cfg_aug.get("p_reverb", 0.5)          # set 1.0 for reverb-on-all
     rng = random.Random(seed)
 
     def augment_fn(wav, sr):

@@ -167,8 +167,13 @@ def main(cfg_path, epochs=None, limit=None, no_wandb=False):
     use_wandb = cfg.get("wandb", {}).get("enabled", False) and not no_wandb
     if use_wandb:
         import wandb
-        wandb.init(entity=cfg["wandb"].get("entity"),
-                   project=cfg["wandb"].get("project", "sonos-vad"), config=cfg)
+        wandb.init(
+            entity=cfg["wandb"].get("entity"),
+            project=cfg["wandb"].get("project", "sonos-vad"),
+            name=cfg["wandb"].get("name"),
+            mode=cfg["wandb"].get("mode", "online"),
+            config=cfg,
+        )
         wandb.watch(model, log_freq=100)
 
     # ---- loop
