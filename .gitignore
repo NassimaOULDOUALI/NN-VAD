@@ -41,3 +41,4 @@ report/*.out
 report/*.toc
 report/*.log
 report/*.synctex.gz
+*.bak
