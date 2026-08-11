@@ -1,6 +1,5 @@
 # Neural Voice Activity Detection — Sonos SVC AudioML Challenge
 
-> **Private repository — do not make public.**  
 > Challenge-provided data are not versioned or redistributed. Only public external resources used by the pipeline (e.g. MUSAN / RIR resources) may be downloaded by the setup scripts.
 
 ## Overview
@@ -555,7 +554,11 @@ The final report used:
 checkpoints/crnn_full_job834609_best.pt
 ```
 
-Checkpoints are not versioned. A fresh training run may produce a different checkpoint filename.
+Checkpoints are not versioned in this repository. The exported final checkpoint and Hugging Face inference package are available here:
+
+https://huggingface.co/nassimaODL/streaming-vad-crnn
+
+A fresh training run may produce a different checkpoint filename.
 
 ### Evaluate
 
@@ -680,7 +683,7 @@ In order of scientific leverage:
 
 ## AI-assisted development
 
-ChatGPT was used as a coding assistant for debugging, experimental scripting, refactoring.
+ChatGPT was used as a coding assistant for debugging, experimental scripting and refactoring.
 
 AI-generated suggestions were reviewed, tested, and adapted before inclusion. Experimental execution, configuration choices, output inspection, result interpretation, and all final reported values were performed and checked by the author.
 
