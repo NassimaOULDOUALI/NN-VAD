@@ -179,7 +179,7 @@ def select_threshold(
     best_idx = int(np.nanargmax(f1))
     threshold = float(thresholds[best_idx])
 
-    return float(np.clip(threshold, 0.0, 1.0))
+    return threshold
 
 
 def _merge_intervals(intervals):

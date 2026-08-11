@@ -1,0 +1,84 @@
+# ======================================================================
+# NN-VAD central configuration
+# ======================================================================
+
+seed: 42
+num_workers: 8
+
+paths:
+  provided_data: data/vad_data
+  musan: data/musan
+  rirs: data/rirs
+  checkpoints: checkpoints
+  report_figs: report/figures
+
+audio:
+  sample_rate: 16000
+  mono: true
+
+features:
+  type: logmel
+  n_mels: 64
+  win_ms: 25
+  hop_ms: 10
+  center: true
+  cmvn: causal
+
+labels:
+  frame_hop_ms: 10
+  merge_gaps_below_ms: 50
+
+split:
+  by: speaker
+  train: 0.8
+  val: 0.1
+  test: 0.1
+
+augment:
+  snr_db_range: [-5, 20]
+  p_noise: 0.8
+  p_reverb: 0.0
+  specaugment: true
+
+model:
+  name: crnn
+  crnn:
+    channels: 64
+    n_blocks: 4
+    kernel_size: 5
+    gru_hidden: 64
+    gru_layers: 1
+    dropout: 0.1
+
+train:
+  loss: weighted_bce
+  optimizer: adamw
+  lr: 1.0e-3
+  scheduler: plateau
+  batch_size: 32
+  seq_seconds: 8
+  max_epochs: 50
+  early_stopping:
+    monitor: val_f1
+    mode: max
+    patience: 5
+  fp16: true
+
+postprocess:
+  smooth_median_ms: 90
+  min_speech_ms: 120
+  min_silence_ms: 100
+  hangover_ms: 80
+
+eval:
+  threshold_selection: max_f1
+  collar_ms: 100
+  snr_sweep_db: [-5, 0, 5, 10, 15, 20]
+  baselines: [energy, silero]
+
+wandb:
+  enabled: true
+  project: NN-VAD
+  entity: null
+  name: crnn-logmel-seed42
+  mode: online
