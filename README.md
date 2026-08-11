@@ -680,7 +680,7 @@ In order of scientific leverage:
 
 ## AI-assisted development
 
-ChatGPT was used as a coding assistant for implementation review, debugging, experimental scripting, refactoring, and documentation/report editing.
+ChatGPT was used as a coding assistant for debugging, experimental scripting, refactoring.
 
 AI-generated suggestions were reviewed, tested, and adapted before inclusion. Experimental execution, configuration choices, output inspection, result interpretation, and all final reported values were performed and checked by the author.
 
