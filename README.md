@@ -7,7 +7,7 @@ This repository implements a lightweight **causal neural Voice Activity Detector
 
 The final system is a **47,873-parameter causal convolutional-recurrent network (CRNN)** operating on 64-bin log-mel features at a 10 ms frame rate. It is evaluated as a detection system rather than only as a frame classifier: thresholds are calibrated on validation data, temporal post-processing is selected on validation only, and thetest analysis includes false-alarm / miss trade-offs, ROC/PR/DET curves, bootstrap uncertainty, additive-noise robustness, empirical causality checks, and CPU runtime.
 
-The trained checkpoint is available on Hugging Face: nassimaODL/streaming-vad-crnn.
+The trained checkpoint is available on Hugging Face: [nassimaODL/streaming-vad-crnn](https://huggingface.co/nassimaODL/streaming-vad-crnn)
 
 ### Key properties
 
