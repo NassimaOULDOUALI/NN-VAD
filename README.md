@@ -1,6 +1,5 @@
 # Neural Voice Activity Detection 
 
-> Challenge-provided data are not versioned or redistributed. Only public external resources used by the pipeline (e.g. MUSAN / RIR resources) may be downloaded by the setup scripts.
 
 ## Overview
 
